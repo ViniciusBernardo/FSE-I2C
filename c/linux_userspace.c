@@ -5,6 +5,7 @@
 /*!                         System header files                               */
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/types.h>
@@ -56,6 +57,15 @@ void user_delay_us(uint32_t period, void *intf_ptr);
  *
  */
 void print_sensor_data(struct bme280_data *comp_data);
+
+/*!
+ * @brief function to get float value for temperature.
+ *
+ * @param[out] comp_data    :   Structure instance of bme280_data
+ * @param[out] metric       :   Pointer to char with name of the metric to return.
+ *
+ */
+float get_measurement(struct bme280_data *comp_data, char *metric);
 
 /*!
  *  @brief Function for reading the sensor's registers through I2C bus.
@@ -234,6 +244,41 @@ void print_sensor_data(struct bme280_data *comp_data)
 }
 
 /*!
+ * @brief This API used to get float value for temperature.
+ */
+float get_measurement(struct bme280_data *comp_data, char *metric)
+{
+    float temp, press, hum;
+
+#ifdef BME280_FLOAT_ENABLE
+    temp = comp_data->temperature;
+    press = 0.01 * comp_data->pressure;
+    hum = comp_data->humidity;
+#else
+#ifdef BME280_64BIT_ENABLE
+    temp = 0.01f * comp_data->temperature;
+    press = 0.0001f * comp_data->pressure;
+    hum = 1.0f / 1024.0f * comp_data->humidity;
+#else
+    temp = 0.01f * comp_data->temperature;
+    press = 0.01f * comp_data->pressure;
+    hum = 1.0f / 1024.0f * comp_data->humidity;
+#endif
+#endif
+
+    if(metric == "Temperature"){
+        return temp;
+    } else if(metric == "Pressure"){
+        return press;
+    } else if(metric == "Humidity"){
+        return hum;
+    } else {
+        printf("Invalid Metric! Only 'Pressure', 'Temperature' and 'Humidity' are allowed");
+        exit(1);
+    }
+}
+
+/*!
  * @brief This API reads the sensor temperature, pressure and humidity data in forced mode.
  */
 int8_t stream_sensor_data_forced_mode(struct bme280_dev *dev)
@@ -267,6 +312,16 @@ int8_t stream_sensor_data_forced_mode(struct bme280_dev *dev)
         return rslt;
     }
 
+    FILE *csv_file
+    csv_file = fopen("measurements.csv", "w");
+
+    if(csv_file == NULL){
+        printf("Error to open CSV!");
+        exit(1);
+    }
+
+    fprintf(fptr, "%s,%s,%s,%s,%s\n", "Date", "Time", "Temperature", "Humidity", "Pressure");
+
     printf("Temperature, Pressure, Humidity\n");
 
     /*Calculate the minimum delay required between consecutive measurement based upon the sensor enabled
@@ -284,16 +339,35 @@ int8_t stream_sensor_data_forced_mode(struct bme280_dev *dev)
             break;
         }
 
-        /* Wait for the measurement to complete and print data */
-        dev->delay_us(req_delay, dev->intf_ptr);
-        rslt = bme280_get_sensor_data(BME280_ALL, &comp_data, dev);
-        if (rslt != BME280_OK)
-        {
-            fprintf(stderr, "Failed to get sensor data (code %+d).", rslt);
-            break;
-        }
+        int i;
+        int mean_temperature = 0, mean_humidity = 0, mean_pressure = 0;
+        for(i = 0; i < 10; i++){
+            /* Wait for the measurement to complete and print data */
+            dev->delay_us(req_delay, dev->intf_ptr);
+            rslt = bme280_get_sensor_data(BME280_ALL, &comp_data, dev);
+            if (rslt != BME280_OK)
+            {
+                fprintf(stderr, "Failed to get sensor data (code %+d).", rslt);
+                break;
+            }
 
-        print_sensor_data(&comp_data);
+            mean_pressure += get_measurement(&comp_data, "Pressure");
+            mean_humidity += get_measurement(&comp_data, "Humidity");
+            mean_temperature += get_measurement(&comp_data, "Temperature");
+
+            print_sensor_data(&comp_data);
+            sleep(1)
+        }
+        time_t now;
+        time(&now);
+        struct tm *local = localtime(&now);
+
+        char date[10], time[8];
+        sprintf(date, "%02d/%02d/%d", local->tm_mday, local->tm_mon + 1, local->tm_year + 1900);
+        sprintf(date, "%02d:%02d:%02d", local->tm_hour, local->tm_min, local->tm_sec);
+
+        fprintf(fptr, "%s,%d,%d,%d,%d,%d\n", name, mark1, mark2, mark3, mark4, mark5);
+        fprintf(fptr, "%s,%s,%.2f,%.2f,%.2f\n", date, time, mean_temperature/10.0, mean_humidity/10.0, mean_pressure/10.0);
     }
 
     return rslt;
