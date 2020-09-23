@@ -16,4 +16,4 @@ Para executar a versão em C, entre com os seguintes comandos no terminal:
 
 **Limitações da versão C:**
 * Os dados no arquivos csv são sobreescritos a cada execução;
-* Ao finalizar o programa com ctrl + C, o programa irá concluir ao término do bloco das 10 medições corrente.
+* Ao finalizar o programa com `ctrl + C`, o programa irá concluir ao término do bloco das 10 medições corrente.
