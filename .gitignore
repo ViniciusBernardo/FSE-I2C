@@ -1,0 +1,5 @@
+c/bin
+python/*.pyo
+python/*.pyc
+*.swp
+*.csv

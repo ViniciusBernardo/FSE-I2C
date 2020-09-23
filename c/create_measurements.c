@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <fcntl.h>
+#include <signal.h>
 
 /******************************************************************************/
 /*!                         Own header files                                  */
@@ -27,6 +28,9 @@ struct identifier
     /* Variable that contains file descriptor */
     int8_t fd;
 };
+
+int execute;
+void trap(int signal){ execute = 0; }
 
 /****************************************************************************/
 /*!                         Functions                                       */
@@ -312,15 +316,15 @@ int8_t stream_sensor_data_forced_mode(struct bme280_dev *dev)
         return rslt;
     }
 
-    FILE *csv_file
-    csv_file = fopen("measurements.csv", "w");
+    FILE *csv_file;
+    csv_file = fopen("./measurements.csv", "w+");
 
     if(csv_file == NULL){
         printf("Error to open CSV!");
         exit(1);
     }
 
-    fprintf(fptr, "%s,%s,%s,%s,%s\n", "Date", "Time", "Temperature", "Humidity", "Pressure");
+    fprintf(csv_file, "%s,%s,%s,%s,%s\n", "Date", "Time", "Temperature", "Humidity", "Pressure");
 
     printf("Temperature, Pressure, Humidity\n");
 
@@ -328,8 +332,11 @@ int8_t stream_sensor_data_forced_mode(struct bme280_dev *dev)
      *  and the oversampling configuration. */
     req_delay = bme280_cal_meas_delay(&dev->settings);
 
+    signal(SIGINT, &trap);
+    execute = 1;
+
     /* Continuously stream sensor data */
-    while (1)
+    while (execute)
     {
         /* Set the sensor to forced mode */
         rslt = bme280_set_sensor_mode(BME280_FORCED_MODE, dev);
@@ -340,8 +347,9 @@ int8_t stream_sensor_data_forced_mode(struct bme280_dev *dev)
         }
 
         int i;
-        int mean_temperature = 0, mean_humidity = 0, mean_pressure = 0;
+        float mean_temperature = 0, mean_humidity = 0, mean_pressure = 0;
         for(i = 0; i < 10; i++){
+            sleep(1);
             /* Wait for the measurement to complete and print data */
             dev->delay_us(req_delay, dev->intf_ptr);
             rslt = bme280_get_sensor_data(BME280_ALL, &comp_data, dev);
@@ -356,19 +364,20 @@ int8_t stream_sensor_data_forced_mode(struct bme280_dev *dev)
             mean_temperature += get_measurement(&comp_data, "Temperature");
 
             print_sensor_data(&comp_data);
-            sleep(1)
         }
         time_t now;
         time(&now);
         struct tm *local = localtime(&now);
 
-        char date[10], time[8];
-        sprintf(date, "%02d/%02d/%d", local->tm_mday, local->tm_mon + 1, local->tm_year + 1900);
-        sprintf(date, "%02d:%02d:%02d", local->tm_hour, local->tm_min, local->tm_sec);
-
-        fprintf(fptr, "%s,%d,%d,%d,%d,%d\n", name, mark1, mark2, mark3, mark4, mark5);
-        fprintf(fptr, "%s,%s,%.2f,%.2f,%.2f\n", date, time, mean_temperature/10.0, mean_humidity/10.0, mean_pressure/10.0);
+	printf("\nWriting to File\n\n");
+        fprintf(csv_file,
+		"%02d-%02d-%d,%02d:%02d:%02d,%.2f,%.2f,%.2f\n",
+		local->tm_mday, local->tm_mon + 1, local->tm_year + 1900,
+		local->tm_hour, local->tm_min, local->tm_sec,
+		(float) mean_temperature/10, (float) mean_humidity/10, (float) mean_pressure/10);
     }
+    signal(SIGINT, SIG_DFL);
 
+    fclose(csv_file);
     return rslt;
 }
